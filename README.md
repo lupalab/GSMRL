@@ -15,7 +15,7 @@ You can train your own model by the scripts provided below.
 
 ### Cube
 
-- Train the ACflow Classifier model
+- Train the ACflow model
 
 ``` bash
 python scripts/train.py --cfg_file=./exp/vec/params.json

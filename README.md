@@ -3,7 +3,7 @@
 
 ### Prerequisites
 
-refer to `requirements.txt`.
+refer to `requirements.txt`
 
 ### Download data
 

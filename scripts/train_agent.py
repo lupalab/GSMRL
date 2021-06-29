@@ -9,12 +9,12 @@ import numpy as np
 import pickle
 from pprint import pformat, pprint
 
-from dfa_modules.ppo import PPOPolicy
-from dfa_modules.cls_env import Env as ClsEnv
-from dfa_modules.img_env import Env as ImgEnv
-from dfa_modules.img_env_v2 import Env as ImgEnvV2
-from dfa_modules.reg_env import Env as RegEnv
-from dfa_modules.ts_env import Env as TSEnv
+from agents.ppo import PPOPolicy
+from envs.cls_env import Env as ClsEnv
+from envs.img_env import Env as ImgEnv
+from envs.img_env_v2 import Env as ImgEnvV2
+from envs.reg_env import Env as RegEnv
+from envs.ts_env import Env as TSEnv
 from utils.hparams import HParams
 
 parser = argparse.ArgumentParser()

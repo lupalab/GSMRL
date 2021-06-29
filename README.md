@@ -24,5 +24,5 @@ python scripts/train_model.py --cfg_file=./exp/cube/params.json
 - Train the PPO Policy
 
 ``` bash
-python scripts/run_dfa.py --cfg_file=./exp/ppo/params.json
+python scripts/train_agent.py --cfg_file=./exp/ppo/params.json
 ```

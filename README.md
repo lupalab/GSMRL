@@ -18,11 +18,11 @@ You can train your own model by the scripts provided below.
 - Train the ACflow model
 
 ``` bash
-python scripts/train.py --cfg_file=./exp/vec/params.json
+python scripts/train_model.py --cfg_file=./exp/cube/params.json
 ```
 
 - Train the PPO Policy
 
 ``` bash
-python scripts/run_dfa.py --cfg_file=./exp/ppo/params.json
+python scripts/train_agent.py --cfg_file=./exp/ppo/params.json
 ```

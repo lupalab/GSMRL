@@ -131,8 +131,8 @@ class Env(object):
         #     sam = self.model.run(
         #         [self.model.sam],
         #             feed_dict={self.model.x: x,
-        #             self.model.b: m,
-        #             self.model.m: np.ones_like(m)})    
+        #             self.model.b: old_m,
+        #             self.model.m: np.ones_like(old_m)})    
         #     diff = []
         #     for i, vals in enumerate(old_m):
         #         for j, val in enumerate(vals):
@@ -147,7 +147,7 @@ class Env(object):
         #             value[diff[i]] = sam[0][i][idx][diff[i]]
 
         #     self.x[normal] = x
-        # logger.info(f'self.x_changed:  {self.x}')
+        #     logger.info(f'self.x_changed:  {self.x}')
 
         #     info_gain = self._info_gain(x, old_m, m, y)
         #     reward[normal] = info_gain - acquisition_cost

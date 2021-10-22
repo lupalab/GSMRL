@@ -2,7 +2,6 @@ import logging
 import numpy as np
 import tensorflow as tf
 from scipy.stats import entropy
-from scipy.special import softmax
 
 from utils.hparams import HParams
 from models import get_model
@@ -16,8 +15,6 @@ class Env(object):
         self.time_steps = self.hps.time_steps
         self.act_size = self.hps.act_size
         self.terminal_act = self.hps.act_size - 1
-        self.n_future = 5
-        self.task = 'ts'
 
         g = tf.Graph()
         with g.as_default():
@@ -42,6 +39,7 @@ class Env(object):
             else:
                 self.cost = np.array([self.hps.acquisition_cost] * self.hps.time_steps, dtype=np.float32)
 
+    
     def reset(self, loop=True, init=False):
         '''
         return state and mask
@@ -61,22 +59,20 @@ class Env(object):
             else:
                 return None, None
 
-    def _cls_reward(self, x, m, y, p):
+    
+    def _cls_reward(self, x, m, y):
         '''
         calculate the cross entropy loss as reward
         '''
-        xent_acflow = self.model.run(self.model.xent, 
+        xent = self.model.run(self.model.xent, 
                     feed_dict={self.model.x: x,
                                self.model.b: m,
                                self.model.m: m,
                                self.model.y: y})
-
-        xent_policy = -np.log(softmax(p)[np.arange(len(p)), y.astype(np.int64)])
-
-        xent = np.minimum(xent_acflow, xent_policy)
         
         return -xent
 
+    
     def _info_gain(self, x, old_m, m, y):
         '''
         information gain by acquiring new feaure
@@ -93,7 +89,8 @@ class Env(object):
 
         return ig
 
-    def step(self, action, prediction):
+
+    def step(self, action):
         empty = action == -1
         terminal = action == self.terminal_act
         normal = np.logical_and(~empty, ~terminal)
@@ -107,8 +104,7 @@ class Env(object):
             x = self.x[terminal]
             y = self.y[terminal]
             m = self.m[terminal]
-            p = prediction[terminal]
-            reward[terminal] = self._cls_reward(x, m, y, p)
+            reward[terminal] = self._cls_reward(x, m, y)
         if np.any(normal):
             x = self.x[normal]
             y = self.y[normal]
@@ -127,44 +123,26 @@ class Env(object):
 
         return self.x * self.m, self.m.copy(), reward, done
 
+    
     def peek(self, state, mask):
-        logits, sam, pred_sam = self.model.run(
-                [self.model.logpo, self.model.sam, self.model.pred_sam],
-                feed_dict={self.model.x: state,
-                           self.model.b: mask,
-                           self.model.m: np.ones_like(mask)})
-        sam_mean = np.mean(sam, axis=1)
-        sam_std = np.std(sam, axis=1)
-        pred_sam_mean = np.mean(pred_sam, axis=1)
-        pred_sam_std = np.std(pred_sam, axis=1)
-
-        prob = softmax(logits, axis=-1)
-        prob = np.max(prob, axis=-1, keepdims=True)
-        prob = np.ones_like(state) * prob
-
-        future = np.concatenate([prob, sam_mean, sam_std, pred_sam_mean, pred_sam_std], axis=-1)
+        future = self.model.run(self.model.sam,
+                     feed_dict={self.model.x: state,
+                                self.model.b: mask,
+                                self.model.m: np.ones_like(mask)})
+        future = np.mean(future, axis=1)
 
         return future
 
-    def evaluate(self, state, mask, prediction):
-        acc_acflow = self.model.run(self.model.acc,
+    
+    def evaluate(self, state, mask):
+        acc = self.model.run(self.model.acc,
                     feed_dict={self.model.x: state,
                                self.model.b: mask,
                                self.model.m: mask,
                                self.model.y: self.y})
 
-        pred = np.argmax(prediction, axis=1)
-        acc_policy = (pred == self.y).astype(np.float32)
+        return {'acc': acc}
 
-        # final reward
-        cost = np.mean(mask, axis=1)
-        reward_acflow = acc_acflow - cost
-        reward_policy = acc_policy - cost
-
-        return {'acc_acflow': acc_acflow, 
-                'acc_policy': acc_policy,
-                'reward_acflow': reward_acflow, 
-                'reward_policy': reward_policy}
 
     def finetune(self, batch):
         _ = self.model.run(self.model.train_op,

@@ -14,8 +14,6 @@ class Env(object):
         self.hps = hps
         self.act_size = self.hps.act_size
         self.terminal_act = self.hps.act_size - 1
-        self.n_future = 4 + 2 * hps.n_target
-        self.task = 'reg'
 
         g = tf.Graph()
         with g.as_default():
@@ -41,6 +39,7 @@ class Env(object):
             else:
                 self.cost = np.array([self.hps.acquisition_cost] * self.hps.dimension, dtype=np.float32)
 
+    
     def reset(self, loop=True, init=False):
         '''
         return state and mask
@@ -60,22 +59,52 @@ class Env(object):
             else:
                 return None, None
 
-    def _reg_reward(self, x, m, y, p):
+
+    def _reg_reward(self, x, m, y):
         '''
         calculate the MSE as reward
         '''
-        mse_acflow = self.model.run(self.model.mse, 
+        mse = self.model.run(self.model.mse, 
                     feed_dict={self.model.x: x,
                                self.model.b: m,
                                self.model.m: m,
                                self.model.y: y})
-
-        mse_policy = np.sum(np.square(p-y), axis=-1)
-
-        mse = np.minimum(mse_acflow, mse_policy)
         
         return -mse
 
+    
+    def _info_gain_sd(self, x, old_m, m, y):
+        '''
+        information gain by acquiring new feaure
+        entropy reduction
+        '''
+        B, d = x.shape
+        N = 21
+        bin_width = 1. / (N-1)
+        xx = np.concatenate([x, x], axis=0)
+        xx = np.repeat(np.expand_dims(xx, axis=1), N, axis=1)
+        xx = xx.reshape([2*B*N, d])
+        bb = np.concatenate([m, old_m], axis=0)
+        bb = np.repeat(np.expand_dims(bb, axis=1), N, axis=1)
+        bb = bb.reshape([2*B*N, d])
+        yy = np.linspace(0., 1., N)
+        yy = np.repeat(np.expand_dims(yy, axis=0), 2*B, axis=0)
+        yy = yy.reshape([2*B*N, 1])
+        hist = self.model.run(self.model.logpy,
+                    feed_dict={self.model.x: xx,
+                               self.model.b: bb,
+                               self.model.m: bb,
+                               self.model.y: yy})
+        hist = hist.reshape([2*B, N])
+        post_hist, pre_hist = np.split(hist, 2, axis=0)
+        
+        post_ent = - bin_width * np.sum(np.exp(post_hist)*post_hist, axis=1)
+        pre_ent = - bin_width * np.sum(np.exp(pre_hist)*pre_hist, axis=1)
+        ig = pre_ent - post_ent
+
+        return ig
+
+    
     def _info_gain(self, x, old_m, m, y):
         '''
         information gain by acquiring new feaure
@@ -98,7 +127,8 @@ class Env(object):
 
         return ig
 
-    def step(self, action, prediction):
+    
+    def step(self, action):
         empty = action == -1
         terminal = action == self.terminal_act
         normal = np.logical_and(~empty, ~terminal)
@@ -112,8 +142,7 @@ class Env(object):
             x = self.x[terminal]
             y = self.y[terminal]
             m = self.m[terminal]
-            p = prediction[terminal]
-            reward[terminal] = self._reg_reward(x, m, y, p)
+            reward[terminal] = self._reg_reward(x, m, y)
         if np.any(normal):
             x = self.x[normal]
             y = self.y[normal]
@@ -128,48 +157,29 @@ class Env(object):
             reward[normal] = info_gain - acquisition_cost
 
         return self.x * self.m, self.m.copy(), reward, done
+        
 
     def peek(self, state, mask):
-        y_sam, sam, pred_sam = self.model.run(
-            [self.model.y_sam, self.model.sam, self.model.pred_sam],
-            feed_dict={self.model.x: state,
-                       self.model.b: mask,
-                       self.model.m: np.ones_like(mask),
-                       self.model.y: self.y})
-        y_sam_mean = np.expand_dims(np.mean(y_sam, axis=1), axis=-1)
-        y_sam_std = np.expand_dims(np.std(y_sam, axis=1), axis=-1)
-        y_sam_mean = np.ones([state.shape[0],1,state.shape[1]], dtype=np.float32) * y_sam_mean
-        y_sam_mean = np.reshape(y_sam_mean, [state.shape[0],-1])
-        y_sam_std = np.ones([state.shape[0],1,state.shape[1]], dtype=np.float32) * y_sam_std
-        y_sam_std = np.reshape(y_sam_std, [state.shape[0],-1])
-        sam_mean = np.mean(sam, axis=1)
-        sam_std = np.std(sam, axis=1)
-        pred_sam_mean = np.mean(pred_sam, axis=1)
-        pred_sam_std = np.std(pred_sam, axis=1)
-
-        future = np.concatenate([y_sam_mean, y_sam_std, sam_mean, sam_std, pred_sam_mean, pred_sam_std], axis=-1)
+        future = self.model.run(self.model.sam,
+                     feed_dict={self.model.x: state,
+                                self.model.b: mask,
+                                self.model.m: np.ones_like(mask),
+                                self.model.y: self.y})
+        future = np.mean(future, axis=1)
 
         return future
 
-    def evaluate(self, state, mask, prediction):
-        mse_acflow = self.model.run(self.model.mse,
+
+    def evaluate(self, state, mask):
+        mse = self.model.run(self.model.mse,
                     feed_dict={self.model.x: state,
                                self.model.b: mask,
                                self.model.m: mask,
                                self.model.y: self.y})
-        
-        mse_policy = np.sum(np.square(prediction-self.y), axis=-1)
 
-        # final reward
-        cost = np.mean(mask, axis=1)
-        reward_acflow = -mse_acflow - cost
-        reward_policy = -mse_policy - cost
+        return {'mse': mse}
 
-        return {'mse_acflow': mse_acflow,
-                'mse_policy': mse_policy,
-                'reward_acflow': reward_acflow,
-                'reward_policy': reward_policy}
-
+    
     def finetune(self, batch):
         _ = self.model.run(self.model.train_op,
                 feed_dict={self.model.x: batch['x'],

@@ -4,7 +4,9 @@ p = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 sys.path.append(p)
 import argparse
 import logging
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+# tf.disable_v2_behavior()
+# tf.disable_eager_execution()
 import numpy as np
 import pickle
 from pprint import pformat, pprint
@@ -14,7 +16,7 @@ from rl_modules.cls_env import Env as ClsEnv
 from rl_modules.reg_env import Env as RegEnv
 from rl_modules.ts_env import Env as TSEnv
 from rl_modules.air_env import Env as AirEnv
-from rl_modules.img_air_env import Env as ImgAirEnv
+# from rl_modules.img_air_env import Env as ImgAirEnv
 from utils.hparams import HParams
 
 parser = argparse.ArgumentParser()
@@ -45,7 +47,7 @@ env_dict = {
     'reg': RegEnv,
     'ts': TSEnv,
     'air': AirEnv,
-    'img_air': ImgAirEnv
+    # 'img_air': ImgAirEnv
 }
 Env = env_dict[args.env]
 

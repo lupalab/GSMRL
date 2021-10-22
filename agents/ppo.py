@@ -5,7 +5,6 @@ import tensorflow as tf
 from collections import namedtuple, defaultdict
 from scipy.special import softmax
 from pprint import pformat
-import random
 
 from utils.nn_utils import dense_nn, set_transformer, induced_set_transformer
 from utils.memory import ReplayMemory
@@ -13,12 +12,18 @@ from utils.visualize import plot_dict
 
 logger = logging.getLogger(__name__)
 
+
 class PPOPolicy(object):
-    def __init__(self, hps, env, split):
+    def __init__(self, hps, env):
         self.hps = hps
         self.env = env
         self.act_size = self.hps.act_size
-
+        # used for time series
+        self.is_time_series = False
+        if hasattr(hps, 'time_steps'):
+            self.is_time_series = True
+            self.time_steps = self.hps.time_steps
+        
         g = tf.Graph()
         with g.as_default():
             # open a session
@@ -35,12 +40,14 @@ class PPOPolicy(object):
             self.saver = tf.train.Saver()
             self.writer = tf.summary.FileWriter(self.hps.exp_dir + '/summary')
 
+
     def save(self, filename='params'):
         fname = f'{self.hps.exp_dir}/weights/{filename}.ckpt'
         self.saver.save(self.sess, fname)
         if self.hps.finetune_env:
             fname = f'{self.hps.exp_dir}/weights/env_{filename}.ckpt'
             self.env.saver.save(self.env.sess, fname)
+
 
     def load(self, filename='params'):
         fname = f'{self.hps.exp_dir}/weights/{filename}.ckpt'
@@ -49,39 +56,26 @@ class PPOPolicy(object):
             fname = f'{self.hps.exp_dir}/weights/env_{filename}.ckpt'
             self.env.saver.restore(self.env.sess, fname)
 
+
     def act(self, state, mask, future, hard=False):
         '''
         state: [B,d] observed dimensions with values
         mask: [B,d] binary mask indicating observed dimensions
               1: observed   0: unobserved
-        future: [B,d*n]
+        future: [B,d]
         action: [B] sample an action to take
-        prediction: [B,K] prediction from partial observation
         '''
-        probas, prediction = self.sess.run([self.actor_proba, self.predictor],
-                                        feed_dict={self.state: state,
-                                                   self.mask: mask,
-                                                   self.future: future})
-        
-        # logger.info(f'probas:  {probas}')
-        # logger.info(f'self.x:  {self.x}')
-        # for i, vals in enumerate(self.x):
-        #     for j, val in enumerate(vals):
-        #         if val == 0:
-        #             probas[i][j] = 0
-        # sum = []
-        # for i in probas:
-        #     sum.append(np.sum(i))
-
-        # for i, vals in enumerate(probas):
-        #     for j, val in enumerate(vals):
-        #         probas[i][j] = probas[i][j] / sum[i]    
+        probas = self.sess.run(self.actor_proba, 
+                              {self.state: state,
+                               self.mask: mask,
+                               self.future: future})
         if hard:
             action = np.array([np.argmax(p) for p in probas])
         else:
             action = np.array([np.random.choice(self.act_size, p=p) for p in probas])
 
-        return action, prediction
+        return action
+
 
     def scope_vars(self, scope, only_trainable=True):
         collection = tf.GraphKeys.TRAINABLE_VARIABLES if only_trainable else tf.GraphKeys.VARIABLES
@@ -91,6 +85,7 @@ class PPOPolicy(object):
         for v in variables:
             logger.info("\t" + str(v))
         return variables
+
 
     def _build_networks(self):
         d = self.hps.dimension
@@ -103,10 +98,6 @@ class PPOPolicy(object):
         self.done = tf.placeholder(tf.float32, shape=[None], name='done_flag')
 
         self.old_logp_a = tf.placeholder(tf.float32, shape=[None], name='old_logp_a')
-        if self.env.task == 'reg':
-            self.p_target = tf.placeholder(tf.float32, shape=[None,self.hps.n_target], name='p_target')
-        else:
-            self.p_target = tf.placeholder(tf.float32, shape=[None], name='p_target')
         self.v_target = tf.placeholder(tf.float32, shape=[None], name='v_target')
         self.adv = tf.placeholder(tf.float32, shape=[None], name='return')
 
@@ -125,25 +116,22 @@ class PPOPolicy(object):
             else:
                 embed = tf.concat([self.state, self.future, self.mask], axis=-1)
                 self.embed_vars = []
-
+        
         with tf.variable_scope('actor'):
             # Actor: action probabilities
             actor_layers = self.hps.actor_layers + [self.act_size]
             self.actor = dense_nn(embed, actor_layers, name='actor')
-            if self.env.task == 'ts':
-                assert d % self.hps.time_steps == 0
-                assert self.act_size == self.hps.time_steps + 1
-                logits_mask = tf.reshape(self.mask, [tf.shape(self.mask)[0], self.hps.time_steps, -1])
+            if self.is_time_series:
+                assert d % self.time_steps == 0
+                assert self.act_size == self.time_steps + 1
+                logits_mask = tf.reshape(self.mask, [tf.shape(self.mask)[0], self.time_steps, -1])
                 logits_mask = logits_mask[:,:,0]
                 cum_mask = tf.cumsum(logits_mask, axis=1, reverse=True)
                 logits_mask = tf.where(tf.equal(cum_mask, 0.), tf.zeros_like(logits_mask), tf.ones_like(logits_mask))
                 logits_mask = tf.concat([logits_mask, tf.zeros([tf.shape(self.mask)[0], 1])], axis=1)
-            elif hasattr(self.env, 'terminal_act'):
+            else:
                 assert self.act_size == d + 1
                 logits_mask = tf.concat([self.mask, tf.zeros([tf.shape(self.mask)[0], 1])], axis=1)
-            else:
-                assert self.act_size == d
-                logits_mask = self.mask
             inf_tensor = -tf.ones_like(self.actor) * np.inf
             self.actor_logits = tf.where(tf.equal(logits_mask, 0), self.actor, inf_tensor)
             self.actor_proba = tf.nn.softmax(self.actor_logits)
@@ -153,21 +141,15 @@ class PPOPolicy(object):
             self.logp_a = tf.gather_nd(self.actor_log_proba, index)
             self.actor_vars = self.scope_vars('actor')
 
-        with tf.variable_scope('predictor'):
-            # Predictor: predict target variable
-            predictor_layers = self.hps.predictor_layers + [self.hps.n_target]
-            self.predictor = dense_nn(embed, predictor_layers, name='predictor')
-            self.predictor_vars = self.scope_vars('predictor')
-
         with tf.variable_scope('critic'):
             # Critic: action value (V value)
             critic_layers = self.hps.critic_layers + [1]
             self.critic = tf.squeeze(dense_nn(embed, critic_layers, name='critic'))
             self.critic_vars = self.scope_vars('critic')
 
+
     def _build_train_ops(self):
         self.lr_a = tf.placeholder(tf.float32, shape=None, name='learning_rate_actor')
-        self.lr_p = tf.placeholder(tf.float32, shape=None, name='learning_rate_predictor')
         self.lr_c = tf.placeholder(tf.float32, shape=None, name='learning_rate_critic')
         self.clip_range = tf.placeholder(tf.float32, shape=None, name='ratio_clip_range')
 
@@ -188,24 +170,6 @@ class PPOPolicy(object):
             grads_and_vars = zip(grads_a, vars_a)
             self.train_op_a = optim_a.apply_gradients(grads_and_vars)
 
-        with tf.variable_scope('predictor_train'):
-            if self.env.task == 'reg':
-                loss_p = tf.reduce_sum(tf.square(self.p_target-self.predictor), axis=1)
-            else:
-                p_target = tf.cast(self.p_target, tf.int64)
-                loss_p = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.predictor, labels=p_target)
-            loss_p = tf.reduce_mean(loss_p * self.done)
-
-            optim_p = tf.train.AdamOptimizer(self.lr_p)
-            grads_and_vars = optim_p.compute_gradients(loss_p, var_list=self.predictor_vars+self.embed_vars)
-            grads_p, vars_p = zip(*grads_and_vars)
-            if self.hps.clip_grad_norm > 0:
-                grads_p, gnorm_p = tf.clip_by_global_norm(grads_p, clip_norm=self.hps.clip_grad_norm)
-                gnorm_p = tf.check_numerics(gnorm_p, "Gradient norm is NaN or Inf.")
-                tf.summary.scalar('gnorm_p', gnorm_p)
-            grads_and_vars = zip(grads_p, vars_p)
-            self.train_op_p = optim_p.apply_gradients(grads_and_vars)
-
         with tf.variable_scope('critic_train'):
             loss_c = tf.reduce_mean(tf.square(self.v_target - self.critic))
 
@@ -219,7 +183,7 @@ class PPOPolicy(object):
             grads_and_vars = zip(grads_c, vars_c)
             self.train_op_c = optim_c.apply_gradients(grads_and_vars)
 
-        self.train_ops = tf.group(self.train_op_a, self.train_op_p, self.train_op_c)
+        self.train_ops = tf.group(self.train_op_a, self.train_op_c)
 
         with tf.variable_scope('summary'):
             self.ep_reward = tf.placeholder(tf.float32, name='episode_reward')
@@ -228,7 +192,6 @@ class PPOPolicy(object):
                 tf.summary.scalar('loss/adv', tf.reduce_mean(self.adv)),
                 tf.summary.scalar('loss/ratio', tf.reduce_mean(ratio)),
                 tf.summary.scalar('loss/loss_actor', loss_a),
-                tf.summary.scalar('loss/loss_predictor', loss_p),
                 tf.summary.scalar('loss/loss_critic', loss_c),
                 tf.summary.scalar('episode_reward', self.ep_reward)
             ]
@@ -236,18 +199,15 @@ class PPOPolicy(object):
             self.summary += [tf.summary.histogram('vars/' + v.name, v)
                             for v in vars_a if v is not None]
             self.summary += [tf.summary.histogram('vars/' + v.name, v)
-                            for v in vars_p if v is not None]
-            self.summary += [tf.summary.histogram('vars/' + v.name, v)
                             for v in vars_c if v is not None]
 
             self.summary += [tf.summary.scalar('grads/' + g.name, tf.norm(g))
                             for g in grads_a if g is not None]
             self.summary += [tf.summary.scalar('grads/' + g.name, tf.norm(g))
-                            for g in grads_p if g is not None]
-            self.summary += [tf.summary.scalar('grads/' + g.name, tf.norm(g))
                             for g in grads_c if g is not None]
 
             self.merged_summary = tf.summary.merge_all(key=tf.GraphKeys.SUMMARIES)
+
 
     def _generate_rollout(self, buffer):
         s, m = self.env.reset() # [B,d]
@@ -264,11 +224,11 @@ class PPOPolicy(object):
         while not np.all(done):
             logger.debug(f'mask: {m}')
             f = self.env.peek(s, m)
-            a_orig, p = self.act(s, m, f) # [B]
+            a_orig = self.act(s, m, f) # [B]
             logger.debug(f'action: {a_orig}')
             a = a_orig.copy()
             a[done] = -1 # empty action
-            s_next, m_next, r, done = self.env.step(a, p)
+            s_next, m_next, r, done = self.env.step(a)
             logger.debug(f'done: {done}')
             obs.append(s)
             masks.append(m)
@@ -292,45 +252,22 @@ class PPOPolicy(object):
         
         # compute the current log pi(a|s) and predicted v values.
         with self.sess.as_default():
-            if False:
-                logp_a = self.logp_a.eval({self.action: np.concatenate(actions), 
-                                        self.state: np.concatenate(obs),
-                                        self.mask: np.concatenate(masks),
-                                        self.future: np.concatenate(futures)})
-                logp_a = logp_a.reshape([T, -1])
-                logger.debug(f'logp_a:\n{logp_a}')
-                assert not np.any(np.isnan(logp_a)), 'logp_a contains NaN values.'
-                assert not np.any(np.isinf(logp_a)), 'logp_a contains Inf values.'
+            logp_a = self.logp_a.eval({self.action: np.concatenate(actions), 
+                                       self.state: np.concatenate(obs),
+                                       self.mask: np.concatenate(masks),
+                                       self.future: np.concatenate(futures)})
+            logp_a = logp_a.reshape([T, -1])
+            logger.debug(f'logp_a:\n{logp_a}')
+            assert not np.any(np.isnan(logp_a)), 'logp_a contains NaN values.'
+            assert not np.any(np.isinf(logp_a)), 'logp_a contains Inf values.'
 
-                v_pred = self.critic.eval({self.state: np.concatenate(obs),
-                                        self.mask: np.concatenate(masks),
-                                        self.future: np.concatenate(futures)})
-                v_pred = v_pred.reshape([T, -1])
-                logger.debug(f'v_pred:\n{v_pred}')
-                assert not np.any(np.isnan(v_pred)), 'v_pred contains NaN values.'
-                assert not np.any(np.isinf(v_pred)), 'v_pred contains Inf values.'
-            else:
-                logp_a_list = []
-                v_pred_list = []
-                for at, xt, mt, ft in zip(actions, obs, masks, futures):
-                    logp_a = self.logp_a.eval({self.action: at,
-                                               self.state: xt,
-                                               self.mask: mt,
-                                               self.future: ft})
-                    logp_a_list.append(logp_a)
-                    logger.debug(f'logp_a:\n{logp_a}')
-                    assert not np.any(np.isnan(logp_a)), 'logp_a contains NaN values.'
-                    assert not np.any(np.isinf(logp_a)), 'logp_a contains Inf values.'
-
-                    v_pred = self.critic.eval({self.state: xt,
-                                               self.mask: mt,
-                                               self.future: ft})
-                    v_pred_list.append(v_pred)
-                    logger.debug(f'v_pred:\n{v_pred}')
-                    assert not np.any(np.isnan(v_pred)), 'v_pred contains NaN values.'
-                    assert not np.any(np.isinf(v_pred)), 'v_pred contains Inf values.'
-                logp_a = np.stack(logp_a_list)
-                v_pred = np.stack(v_pred_list)
+            v_pred = self.critic.eval({self.state: np.concatenate(obs),
+                                       self.mask: np.concatenate(masks),
+                                       self.future: np.concatenate(futures)})
+            v_pred = v_pred.reshape([T, -1])
+            logger.debug(f'v_pred:\n{v_pred}')
+            assert not np.any(np.isnan(v_pred)), 'v_pred contains NaN values.'
+            assert not np.any(np.isinf(v_pred)), 'v_pred contains Inf values.'
 
         # record this batch
         logger.info('record this batch.')
@@ -378,6 +315,7 @@ class PPOPolicy(object):
 
         return np.mean(episode_reward), n_rec
 
+    
     def _ratio_clip_fn(self, n_iter):
         clip = self.hps.ratio_clip_range
         if self.hps.ratio_clip_decay:
@@ -386,34 +324,18 @@ class PPOPolicy(object):
 
         return max(0.0, clip)
 
+
     def train(self):
         BufferRecord = namedtuple('BufferRecord', ['x', 'y', 's', 'm', 'f', 'a', 's_next', 'm_next', 'r', 'done', 
                                                    'old_logp_a', 'v_target', 'adv'])
         buffer = ReplayMemory(tuple_class=BufferRecord, capacity=self.hps.buffer_size)
         
-        # pretrain
-        buffer.clean()
-        for n_iter in range(self.hps.pretrain_iters):
-            _ = self._generate_rollout(buffer)
-
-            for batch in buffer.loop(self.hps.batch_size, self.hps.epochs):
-                _ = self.sess.run(self.train_op_p,
-                        feed_dict={self.lr_p: self.hps.lr_p,
-                                   self.state: batch['s'],
-                                   self.mask: batch['m'],
-                                   self.future: batch['f'],
-                                   self.done: batch['done'],
-                                   self.p_target: batch['y']
-                                   })
-
-        # train
         reward_history = []
         reward_averaged = []
         best_reward = -np.inf
         step = 0
         total_rec = 0
 
-        buffer.clean()
         for n_iter in range(self.hps.train_iters):
             clip = self._ratio_clip_fn(n_iter)
             if self.hps.clean_buffer:
@@ -427,7 +349,6 @@ class PPOPolicy(object):
                 _, summ_str = self.sess.run(
                  [self.train_ops, self.merged_summary],
                  feed_dict={self.lr_a: self.hps.lr_a,
-                            self.lr_p: self.hps.lr_p,
                             self.lr_c: self.hps.lr_c,
                             self.clip_range: clip,
                             self.state: batch['s'],
@@ -438,7 +359,6 @@ class PPOPolicy(object):
                             self.reward: batch['r'],
                             self.done: batch['done'],
                             self.old_logp_a: batch['old_logp_a'],
-                            self.p_target: batch['y'],
                             self.v_target: batch['v_target'],
                             self.adv: batch['adv'],
                             self.ep_reward: np.mean(reward_history[-10:]) if reward_history else 0.0,
@@ -468,7 +388,7 @@ class PPOPolicy(object):
             if np.mean(reward_history[-10:]) > best_reward:
                 best_reward = np.mean(reward_history[-10:])
                 self.save('best')
-
+                
         # FINISH
         self.save()
         logger.info("[FINAL] episodes: {}, Max reward: {}, Average reward: {}".format(
@@ -478,6 +398,7 @@ class PPOPolicy(object):
             'reward_smooth10': reward_averaged,
         }
         plot_dict(f'{self.hps.exp_dir}/learning_curve.png', data_dict, xlabel='episode')
+
 
     def evaluate(self, load=True, hard=False, max_batches=10):
         if load: self.load('best')
@@ -499,9 +420,10 @@ class PPOPolicy(object):
             done = np.zeros([s.shape[0]], dtype=np.bool)
             while not np.all(done):
                 f = self.env.peek(s, m)
-                a, p = self.act(s, m, f, hard=hard)
-                a[done] = -1
-                s, m, r, done = self.env.step(a, p)
+                a_orig = self.act(s, m, f, hard=hard) # [B]
+                a = a_orig.copy()
+                a[done] = -1 # empty action
+                s, m, r, done = self.env.step(a)
                 episode_reward += r
                 num_acquisition += ~done
                 transition += m
@@ -509,7 +431,7 @@ class PPOPolicy(object):
             metrics['num_acquisition'].append(num_acquisition)
             transitions.append(transition.astype(np.int32))
             # evaluate the final state
-            eval_dict = self.env.evaluate(s, m, p)
+            eval_dict = self.env.evaluate(s, m)
             for k, v in eval_dict.items():
                 metrics[k].append(v)
 
@@ -527,7 +449,7 @@ class PPOPolicy(object):
         logger.info('example transitions:')
         for i in range(5):
             logger.info(transitions[i])
-
+        
         # log
         logger.info('#'*20)
         logger.info('evaluate:')
@@ -535,3 +457,4 @@ class PPOPolicy(object):
             logger.info(f'{k}: {v}')
 
         return {'metrics': metrics, 'transitions': transitions}
+            

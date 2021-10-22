@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 tfk = tf.keras
 import numpy as np
 
@@ -97,9 +97,9 @@ class Reverse(BaseTransform):
 
     def forward(self, x, c, b, m):
         query = m * (1-b) # [B, d]
-        sorted_query = tf.contrib.framework.sort(query, axis=-1, direction='DESCENDING')
+        sorted_query = tf.sort(query, axis=-1, direction='DESCENDING')
         reverse_query = tf.reverse(sorted_query, [-1])
-        ind = tf.contrib.framework.argsort(reverse_query, axis=-1, direction='DESCENDING', stable=True)
+        ind = tf.argsort(reverse_query, axis=-1, direction='DESCENDING', stable=True)
         z = tf.reverse(x, [-1])
         z = tf.batch_gather(z, ind)
         ldet = 0.0
@@ -108,9 +108,9 @@ class Reverse(BaseTransform):
 
     def inverse(self, z, c, b, m):
         query = m * (1-b) # [B, d]
-        sorted_query = tf.contrib.framework.sort(query, axis=-1, direction='DESCENDING')
+        sorted_query = tf.sort(query, axis=-1, direction='DESCENDING')
         reverse_query = tf.reverse(sorted_query, [-1])
-        ind = tf.contrib.framework.argsort(reverse_query, axis=-1, direction='DESCENDING', stable=True)
+        ind = tf.argsort(reverse_query, axis=-1, direction='DESCENDING', stable=True)
         x = tf.reverse(z, [-1])
         x = tf.batch_gather(x, ind)
         ldet = 0.0
@@ -131,7 +131,7 @@ class LeakyReLU(BaseTransform):
 
     def forward(self, x, c, b, m):
         query = m * (1-b) # [B, d]
-        sorted_query = tf.contrib.framework.sort(query, axis=-1, direction='DESCENDING')
+        sorted_query = tf.sort(query, axis=-1, direction='DESCENDING')
         num_negative = tf.reduce_sum(tf.cast(tf.less(x, 0.0), tf.float32) * sorted_query, axis=1)
         ldet = num_negative * tf.log(self.alpha)
         z = tf.maximum(x, self.alpha * x)
@@ -140,7 +140,7 @@ class LeakyReLU(BaseTransform):
 
     def inverse(self, z, c, b, m):
         query = m * (1-b) # [B, d]
-        sorted_query = tf.contrib.framework.sort(query, axis=-1, direction='DESCENDING')
+        sorted_query = tf.sort(query, axis=-1, direction='DESCENDING')
         num_negative = tf.reduce_sum(tf.cast(tf.less(z, 0.0), tf.float32) * sorted_query, axis=1)
         ldet = -1. * num_negative * tf.log(self.alpha)
         x = tf.minimum(z, z / self.alpha)
@@ -160,7 +160,7 @@ class Rescale(BaseTransform):
     def forward(self, x, c, b, m):
         B = tf.shape(x)[0]
         query = m * (1-b)
-        ind = tf.contrib.framework.argsort(query, axis=-1, direction='DESCENDING', stable=True)
+        ind = tf.argsort(query, axis=-1, direction='DESCENDING', stable=True)
         logs_tiled = tf.tile(self.logs, [B, 1])
         logs = tf.batch_gather(logs_tiled, ind)
         z = tf.multiply(x, tf.exp(logs))
@@ -171,7 +171,7 @@ class Rescale(BaseTransform):
     def inverse(self, z, c, b, m):
         B = tf.shape(z)[0]
         query = m * (1-b)
-        ind = tf.contrib.framework.argsort(query, axis=-1, direction='DESCENDING', stable=True)
+        ind = tf.argsort(query, axis=-1, direction='DESCENDING', stable=True)
         logs_tiled = tf.tile(self.logs, [B, 1])
         logs = tf.batch_gather(logs_tiled, ind)
         x = tf.divide(z, tf.exp(logs))
@@ -209,7 +209,7 @@ class Coupling1(BaseTransform):
         shift = self.nets[id](inp)
         # reorder
         query = m * (1-b)
-        order = tf.contrib.framework.argsort(query, direction='DESCENDING', stable=True)
+        order = tf.argsort(query, direction='DESCENDING', stable=True)
         t = tf.batch_gather(tf.matrix_diag(query), order)
         t = tf.transpose(t, perm=[0,2,1])
         shift = tf.einsum('nd,ndi->ni', shift, t)
@@ -273,7 +273,7 @@ class Coupling2(BaseTransform):
         scale, shift = tf.split(params, 2, axis=1)
         # reorder
         query = m * (1-b)
-        order = tf.contrib.framework.argsort(query, direction='DESCENDING', stable=True)
+        order = tf.argsort(query, direction='DESCENDING', stable=True)
         t = tf.batch_gather(tf.matrix_diag(query), order)
         t = tf.transpose(t, perm=[0,2,1])
         scale = tf.einsum('nd,ndi->ni', scale, t)
@@ -463,12 +463,12 @@ class Linear(BaseTransform):
         bias = bc + self.b
         # reorder
         query = m * (1-b)
-        order = tf.contrib.framework.argsort(query, direction='DESCENDING', stable=True)
+        order = tf.argsort(query, direction='DESCENDING', stable=True)
         t = tf.batch_gather(tf.matrix_diag(query), order)
         weight = tf.matmul(tf.matmul(t, weight), tf.transpose(t, perm=[0,2,1]))
         bias = tf.squeeze(tf.matmul(t, tf.expand_dims(bias, axis=-1)), axis=-1)
         # add a diagnal part
-        diag = tf.matrix_diag(tf.contrib.framework.sort(1-query, direction='ASCENDING'))
+        diag = tf.matrix_diag(tf.sort(1-query, direction='ASCENDING'))
         weight += diag
         
         return weight, bias
@@ -529,7 +529,7 @@ class LULinear(BaseTransform):
         bias = bc + self.b
         # reorder
         query = m * (1-b)
-        order = tf.contrib.framework.argsort(query, direction='DESCENDING', stable=True)
+        order = tf.argsort(query, direction='DESCENDING', stable=True)
         t = tf.batch_gather(tf.matrix_diag(query), order)
         weight = tf.matmul(tf.matmul(t, weight), tf.transpose(t, perm=[0,2,1]))
         bias = tf.squeeze(tf.matmul(t, tf.expand_dims(bias, axis=-1)), axis=-1)
@@ -543,7 +543,7 @@ class LULinear(BaseTransform):
         A = tf.matmul(L, U)
         # add a diagnal part
         query = m * (1-b)
-        diag = tf.matrix_diag(tf.contrib.framework.sort(1-query, axis=1, direction='ASCENDING'))
+        diag = tf.matrix_diag(tf.sort(1-query, axis=1, direction='ASCENDING'))
         U += diag
 
         return A, L, U
@@ -588,7 +588,7 @@ class Affine(BaseTransform):
         shift, scale = tf.split(params, 2, axis=1)
         # reorder
         query = m * (1-b)
-        order = tf.contrib.framework.argsort(query, direction='DESCENDING', stable=True)
+        order = tf.argsort(query, direction='DESCENDING', stable=True)
         t = tf.batch_gather(tf.matrix_diag(query), order)
         t = tf.transpose(t, perm=[0,2,1])
         scale = tf.einsum('nd,ndi->ni', scale, t)
@@ -653,7 +653,7 @@ if __name__ == '__main__':
     x, bdet1 = l1.inverse(x, c_ph, b_ph, m_ph)
     bdet = bdet1 + bdet2
 
-    q = tf.contrib.framework.sort(m_ph * (1-b_ph), direction='DESCENDING')
+    q = tf.sort(m_ph * (1-b_ph), direction='DESCENDING')
     err = tf.reduce_sum(tf.square(x_ph - x)*q)
     det = tf.reduce_sum(fdet + bdet)
 

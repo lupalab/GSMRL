@@ -9,6 +9,11 @@ def get_model(sess, hps):
     elif hps.model == 'acflow_regressor':
         from .acflow_regressor import Model
         model = Model(sess, hps)
+    elif hps.model == 'ace':
+        from .ace import Model
+        # model = Model(sess, hps)
+        model = Model(hps.dimension)
+        model.load_weights("./exp/gas/weights.h5")
     elif hps.model == 'acnp_classifier':
         from .acnp_classifier import Model
         model = Model(sess, hps)

@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 tfk = tf.keras
 import tensorflow_probability as tfp
 tfd = tfp.distributions
@@ -50,7 +50,7 @@ class DiagGaussian(object):
         mean, logs = tf.split(params, 2, axis=1)
         # reorder
         query = m * (1-b)
-        order = tf.contrib.framework.argsort(query, direction='DESCENDING', stable=True)
+        order = tf.argsort(query, direction='DESCENDING', stable=True)
         t = tf.batch_gather(tf.matrix_diag(query), order)
         t = tf.transpose(t, perm=[0,2,1])
         mean = tf.einsum('nd,ndi->ni', mean, t)
@@ -65,7 +65,7 @@ class DiagGaussian(object):
         log_likel = dist.log_prob(z)
         # mask out observed
         query = m * (1-b)
-        mask = tf.contrib.framework.sort(query, axis=1, direction='DESCENDING')
+        mask = tf.sort(query, axis=1, direction='DESCENDING')
         log_likel = tf.reduce_sum(log_likel * mask, axis=1)
 
         return log_likel 
@@ -106,7 +106,7 @@ class MixGaussian(object):
         log_likel = mixture_likelihoods(params, z)
         # mask out observed
         query = m * (1-b)
-        mask = tf.contrib.framework.sort(query, axis=1, direction='DESCENDING')
+        mask = tf.sort(query, axis=1, direction='DESCENDING')
         log_likel = tf.reduce_sum(log_likel * mask, axis=1)
 
         return log_likel
@@ -160,7 +160,7 @@ class AutoReg(object):
             log_likel = mixture_likelihoods(params, z)
             # mask out observed
             query = m * (1-b)
-            mask = tf.contrib.framework.sort(query, axis=1, direction='DESCENDING')
+            mask = tf.sort(query, axis=1, direction='DESCENDING')
             log_likel = tf.reduce_sum(log_likel * mask, axis=1)
 
         return log_likel

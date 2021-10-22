@@ -4,7 +4,7 @@ p = os.path.split(os.path.dirname(os.path.abspath(__file__)))[0]
 sys.path.append(p)
 import argparse
 import logging
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import numpy as np
 import pickle
 from pprint import pformat, pprint

@@ -1,4 +1,4 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import numpy as np
 
 
@@ -58,7 +58,7 @@ def set_transformer(inputs, layers_sizes, num_heads=4, name="set_transformer", r
 
         print(f"Layer: pool_attn: {size}")
         seed = tf.get_variable('pool_seed', shape=[1,1,size], dtype=tf.float32, trainable=True, 
-                                initializer=tf.contrib.layers.xavier_initializer())
+                                initializer=tf.keras.initializers.glorot_uniform())
         seed = tf.tile(seed, [tf.shape(out)[0],1,1])
         out = attention(seed, out, size, num_heads, name='pool_attn', reuse=reuse, mask=mask)
         out = tf.squeeze(out, axis=1)
@@ -74,14 +74,14 @@ def induced_set_transformer(inputs, layers_sizes, num_heads=4, num_inds=16, name
         for i, size in enumerate(layers_sizes):
             print(f"Layer: self_attn_{i}: {size}")
             inds = tf.get_variable(f'inds_{i}', shape=[1,num_inds,size], dtype=tf.float32, trainable=True,
-                                    initializer=tf.contrib.layers.xavier_initializer())
+                                    initializer=tf.keras.initializers.glorot_uniform())
             inds = tf.tile(inds, [tf.shape(out)[0],1,1])
             tmp = attention(inds, out, size, num_heads, name=f'self_attn_{i}_pre', reuse=reuse, mask=mask)
             out = attention(out, tmp, size, num_heads, name=f'self_attn_{i}_post', reuse=reuse, mask=None)
 
         print(f"Layer: pool_attn: {size}")
         seed = tf.get_variable('pool_seed', shape=[1,1,size], dtype=tf.float32, trainable=True, 
-                                initializer=tf.contrib.layers.xavier_initializer())
+                                initializer=tf.keras.initializers.glorot_uniform())
         seed = tf.tile(seed, [tf.shape(out)[0],1,1])
         out = attention(seed, out, size, num_heads, name='pool_attn', reuse=reuse, mask=mask)
         out = tf.squeeze(out, axis=1)
@@ -107,7 +107,7 @@ def dense_nn(inputs, layers_sizes, name="mlp", reuse=False, output_fn=None,
                 size,
                 # Add relu activation only for internal layers.
                 activation=tf.nn.relu if i < len(layers_sizes) - 1 else None,
-                kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                kernel_initializer=tf.keras.initializers.glorot_uniform(),
                 name=name + '_l' + str(i),
                 reuse=reuse
             )
@@ -148,11 +148,11 @@ def gcn_layer(X, A, size, name='gcn_layer', reuse=False):
         res = tf.concat([inputs, -inputs], axis=-1)
         res = tf.nn.relu(res)
         res = tf.layers.dense(res, size,
-                kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                kernel_initializer=tf.keras.initializers.glorot_uniform(),
                 name=name+'_res',
                 reuse=reuse)
         inp = tf.layers.dense(X, size,
-                kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                kernel_initializer=tf.keras.initializers.glorot_uniform(),
                 name=name+'_inp',
                 reuse=reuse)
         out = tf.nn.relu(inp+res)
@@ -170,4 +170,3 @@ def gcn(inputs, A, layers_sizes, name='gcn', reuse=False):
             out = gcn_layer(out, A, size, name=name+'_l'+str(i), reuse=reuse)
 
     return out
-    

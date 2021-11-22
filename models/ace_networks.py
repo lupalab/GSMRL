@@ -1,4 +1,4 @@
-import tensorflow as tf2
+import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow.keras import layers as tfl
 
@@ -37,20 +37,20 @@ def proposal_network(
     def create_proposal_dist(t):
         logits = t[..., :mixture_components]
         means = t[..., mixture_components:-mixture_components]
-        scales = tf2.nn.softplus(t[..., -mixture_components:]) + 1e-3
+        scales = tf.nn.softplus(t[..., -mixture_components:]) + 1e-3
         components_dist = tfp.distributions.Normal(
-            loc=tf2.cast(means, tf2.float32), scale=tf2.cast(scales, tf2.float32)
+            loc=tf.cast(means, tf.float32), scale=tf.cast(scales, tf.float32)
         )
         return tfp.distributions.MixtureSameFamily(
             mixture_distribution=tfp.distributions.Categorical(
-                logits=tf2.cast(logits, tf2.float32)
+                logits=tf.cast(logits, tf.float32)
             ),
             components_distribution=components_dist,
         )
 
     proposal_dist = tfp.layers.DistributionLambda(create_proposal_dist)(params)
 
-    return tf2.keras.Model([x_o, observed_mask], [proposal_dist, context], **kwargs)
+    return tf.keras.Model([x_o, observed_mask], [proposal_dist, context], **kwargs)
 
 
 def energy_network(
@@ -64,12 +64,12 @@ def energy_network(
     **kwargs
 ):
     x_u_i = tfl.Input((), name="x_u_i")
-    u_i = tfl.Input((), name="u_i", dtype=tf2.int32)
+    u_i = tfl.Input((), name="u_i", dtype=tf.int32)
     context = tfl.Input((context_units,), name="context")
 
-    u_i_one_hot = tf2.one_hot(u_i, num_features)
+    u_i_one_hot = tf.one_hot(u_i, num_features)
 
-    h = tfl.Concatenate()([tf2.expand_dims(x_u_i, axis=-1), u_i_one_hot, context])
+    h = tfl.Concatenate()([tf.expand_dims(x_u_i, axis=-1), u_i_one_hot, context])
     h = tfl.Dense(hidden_units)(h)
 
     for _ in range(residual_blocks):
@@ -83,8 +83,8 @@ def energy_network(
     h = tfl.Activation(activation)(h)
     h = tfl.Dense(1)(h)
 
-    energies = tf2.nn.softplus(h)
-    energies = tf2.clip_by_value(energies, 0.0, energy_clip)
+    energies = tf.nn.softplus(h)
+    energies = tf.clip_by_value(energies, 0.0, energy_clip)
     negative_energies = -energies
 
-    return tf2.keras.Model([x_u_i, u_i, context], negative_energies, **kwargs)
+    return tf.keras.Model([x_u_i, u_i, context], negative_energies, **kwargs)

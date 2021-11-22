@@ -1,11 +1,13 @@
 import logging
 import numpy as np
+import tensorflow.compat.v1 as tf
 from scipy.stats import entropy
 from scipy.special import softmax
 
 from utils.hparams import HParams
 from datasets.uci import Dataset
-from models.ace import ACEModel
+from models.ray_model import RayACEModel
+import ray
 
 logger = logging.getLogger()
 
@@ -19,8 +21,8 @@ class Env(object):
 
         # build ACE model
         model_hps = HParams(f'{hps.model_dir}/params.json')
-        self.model = ACEModel(hps.dimension)
-        self.model.load_weights("./exp/gas/weights.h5")
+        ray.init()
+        self.model = RayACEModel.remote(model_hps)
         # build dataset
         self.dataset = Dataset(hps.dfile, split, hps.episode_workers, 'remaining', True)
         self.dataset.initialize()
@@ -54,7 +56,7 @@ class Env(object):
         #             feed_dict={self.model.x: x,
         #                        self.model.b: m,
         #                        self.model.m: m})
-        mse = self.model.mse(x, m)
+        mse = ray.get(self.model.mse.remote(x, m))
 
         return -mse
 
@@ -68,7 +70,7 @@ class Env(object):
         #         feed_dict={self.model.x: xx,
         #                    self.model.b: bb,
         #                    self.model.m: bb})
-        bpd = self.model.bpd(xx, bb)
+        bpd = ray.get(self.model.bpd.remote(xx, bb))
         post_bpd, pre_bpd = np.split(bpd, 2, axis=0)
 
         gain = pre_bpd - post_bpd
@@ -108,8 +110,7 @@ class Env(object):
         #         feed_dict={self.model.x: state,
         #                    self.model.b: mask,
         #                    self.model.m: np.ones_like(mask)})
-        # import pdb; pdb.set_trace()
-        sam = self.model.sample(state, mask)
+        sam = ray.get(self.model.sample.remote(state, mask))
         sam_mean = np.mean(sam, axis=1)
         sam_std = np.std(sam, axis=1)
 
@@ -122,7 +123,7 @@ class Env(object):
         #             feed_dict={self.model.x: self.x,
         #                        self.model.b: mask,
         #                        self.model.m: mask})
-        mse = self.model.mse(self.x, mask)
+        mse = ray.get(self.model.mse.remote(self.x, mask))
 
         return {'mse': mse}
 

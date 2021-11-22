@@ -11,7 +11,7 @@ from utils.memory import ReplayMemory
 from utils.visualize import plot_dict
 
 logger = logging.getLogger(__name__)
-
+# tf.disable_v2_behavior()
 
 class PPOPolicy(object):
     def __init__(self, hps, env):
@@ -65,6 +65,7 @@ class PPOPolicy(object):
         future: [B,d]
         action: [B] sample an action to take
         '''
+        # import pdb; pdb.set_trace()
         probas = self.sess.run(self.actor_proba, 
                               {self.state: state,
                                self.mask: mask,
@@ -272,7 +273,7 @@ class PPOPolicy(object):
         # record this batch
         logger.info('record this batch.')
         x = self.env.x.copy()
-        y = self.env.y.copy()
+        # y = self.env.y.copy()
         n_rec = 0
         for i in range(s.shape[0]):
             done = [f[i] for f in flags]
@@ -310,7 +311,8 @@ class PPOPolicy(object):
                 np.array(state[1:] + [next_state]), np.array(mask[1:] + [next_mask]),
                 reward, logp, vt, advs)):
                 done = float(t == max_T)
-                buffer.add(buffer.tuple_class(x[i], y[i], s, m, f, a, sn, mn, r, done, old_logp_a, v_target, adv))
+                # buffer.add(buffer.tuple_class(x[i], y[i], s, m, f, a, sn, mn, r, done, old_logp_a, v_target, adv))
+                buffer.add(buffer.tuple_class(x[i], s, m, f, a, sn, mn, r, done, old_logp_a, v_target, adv))
         logger.info(f'record done: {n_rec} transitions added.')
 
         return np.mean(episode_reward), n_rec
@@ -326,7 +328,8 @@ class PPOPolicy(object):
 
 
     def train(self):
-        BufferRecord = namedtuple('BufferRecord', ['x', 'y', 's', 'm', 'f', 'a', 's_next', 'm_next', 'r', 'done', 
+        # BufferRecord = namedtuple('BufferRecord', ['x', 'y', 's', 'm', 'f', 'a', 's_next', 'm_next', 'r', 'done',
+        BufferRecord = namedtuple('BufferRecord', ['x', 's', 'm', 'f', 'a', 's_next', 'm_next', 'r', 'done',
                                                    'old_logp_a', 'v_target', 'adv'])
         buffer = ReplayMemory(tuple_class=BufferRecord, capacity=self.hps.buffer_size)
         

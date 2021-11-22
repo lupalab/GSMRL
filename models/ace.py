@@ -2,7 +2,7 @@ from typing import NamedTuple, Optional, Union, Tuple
 
 import gin
 import numpy as np
-import tensorflow as tf2
+import tensorflow as tf
 
 from .ace_networks import proposal_network, energy_network
 
@@ -10,21 +10,21 @@ from .ace_networks import proposal_network, energy_network
 class ACEOutput(NamedTuple):
     """Contains the outputs of a forward pass of an ACEModel."""
 
-    energy_ll: tf2.Tensor
-    unnormalized_energy_ll: tf2.Tensor
-    proposal_ll: tf2.Tensor
-    log_ratios: tf2.Tensor
+    energy_ll: tf.Tensor
+    unnormalized_energy_ll: tf.Tensor
+    proposal_ll: tf.Tensor
+    log_ratios: tf.Tensor
 
-    proposal_samples: tf2.Tensor
-    proposal_samples_log_ratios: tf2.Tensor
-    log_normalizers: tf2.Tensor
+    proposal_samples: tf.Tensor
+    proposal_samples_log_ratios: tf.Tensor
+    log_normalizers: tf.Tensor
 
-    proposal_mean: tf2.Tensor
-    energy_mean: tf2.Tensor
+    proposal_mean: tf.Tensor
+    energy_mean: tf.Tensor
 
 
 @gin.configurable(denylist=["num_features"])
-class ACEModel(tf2.keras.Model):
+class ACEModel(tf.keras.Model):
     """An Arbitrary Conditioning with Energy model.
 
     This class encapsulates an ACE model, which can be trained to perform arbitrary
@@ -108,25 +108,25 @@ class ACEModel(tf2.keras.Model):
         )
 
         self._metrics = [
-            tf2.keras.metrics.Mean(name="loss"),
-            tf2.keras.metrics.Mean(name="energy_ll"),
-            tf2.keras.metrics.Mean(name="proposal_ll"),
+            tf.keras.metrics.Mean(name="loss"),
+            tf.keras.metrics.Mean(name="energy_ll"),
+            tf.keras.metrics.Mean(name="proposal_ll"),
         ]
         if self._energy_regularization != 0.0:
-            self._metrics.append(tf2.keras.metrics.Mean(name="energy_reg_loss"))
+            self._metrics.append(tf.keras.metrics.Mean(name="energy_reg_loss"))
 
-        self._alpha = tf2.Variable(1.0, trainable=False, dtype=tf2.float32)
+        self._alpha = tf.Variable(1.0, trainable=False, dtype=tf.float32)
 
         # Create model weights
-        fake_data = tf2.zeros((1, num_features))
+        fake_data = tf.zeros((1, num_features))
         self([fake_data, fake_data], num_importance_samples=1)
 
     def _process_inputs(self, x, observed_mask, missing_mask):
-        observed_mask = tf2.cast(observed_mask, x.dtype)
+        observed_mask = tf.cast(observed_mask, x.dtype)
         query = 1.0 - observed_mask
 
         if missing_mask is not None:
-            missing_mask = tf2.cast(missing_mask, x.dtype)
+            missing_mask = tf.cast(missing_mask, x.dtype)
             query *= 1.0 - missing_mask
             observed_mask *= 1.0 - missing_mask
 
@@ -143,28 +143,28 @@ class ACEModel(tf2.keras.Model):
         context,
         selected_features,
     ):
-        x_u_and_samples = tf2.concat(
-            [tf2.expand_dims(x_u, 1), tf2.cast(proposal_samples, x_u.dtype)], axis=1
+        x_u_and_samples = tf.concat(
+            [tf.expand_dims(x_u, 1), tf.cast(proposal_samples, x_u.dtype)], axis=1
         )
-        u_i = tf2.broadcast_to(
-            tf2.range(self._num_features, dtype=tf2.int32),
-            [tf2.shape(x_u)[0], 1 + num_importance_samples, self._num_features],
+        u_i = tf.broadcast_to(
+            tf.range(self._num_features, dtype=tf.int32),
+            [tf.shape(x_u)[0], 1 + num_importance_samples, self._num_features],
         )
 
         if selected_features is not None:
-            x_u_and_samples = tf2.gather(
+            x_u_and_samples = tf.gather(
                 x_u_and_samples, selected_features, batch_dims=1, axis=2
             )
-            u_i = tf2.gather(u_i, selected_features, batch_dims=1, axis=2)
-            context = tf2.gather(context, selected_features, batch_dims=1, axis=1)
+            u_i = tf.gather(u_i, selected_features, batch_dims=1, axis=2)
+            context = tf.gather(context, selected_features, batch_dims=1, axis=1)
 
-        tiled_context = tf2.tile(
-            tf2.expand_dims(context, 1), [1, 1 + num_importance_samples, 1, 1]
+        tiled_context = tf.tile(
+            tf.expand_dims(context, 1), [1, 1 + num_importance_samples, 1, 1]
         )
 
-        x_u_i = tf2.reshape(x_u_and_samples, [-1])
-        u_i = tf2.reshape(u_i, [-1])
-        tiled_context = tf2.reshape(tiled_context, [-1, self._context_units])
+        x_u_i = tf.reshape(x_u_and_samples, [-1])
+        u_i = tf.reshape(u_i, [-1])
+        tiled_context = tf.reshape(tiled_context, [-1, self._context_units])
 
         return x_u_i, u_i, tiled_context
 
@@ -211,23 +211,23 @@ class ACEModel(tf2.keras.Model):
             [x_o, observed_mask], training=training
         )
 
-        proposal_ll = proposal_dist.log_prob(tf2.cast(x_u, tf2.float32))
-        proposal_ll *= tf2.cast(query, tf2.float32)
+        proposal_ll = proposal_dist.log_prob(tf.cast(x_u, tf.float32))
+        proposal_ll *= tf.cast(query, tf.float32)
 
-        proposal_samples = tf2.stop_gradient(
+        proposal_samples = tf.stop_gradient(
             proposal_dist.sample(num_importance_samples)
         )
-        proposal_samples_proposal_ll = tf2.stop_gradient(
+        proposal_samples_proposal_ll = tf.stop_gradient(
             proposal_dist.log_prob(proposal_samples)
         )
-        proposal_samples = tf2.transpose(proposal_samples, [1, 0, 2])
-        proposal_samples_proposal_ll = tf2.transpose(
+        proposal_samples = tf.transpose(proposal_samples, [1, 0, 2])
+        proposal_samples_proposal_ll = tf.transpose(
             proposal_samples_proposal_ll, [1, 0, 2]
         )
-        proposal_samples *= tf2.expand_dims(tf2.cast(query, tf2.float32), 1)
-        proposal_samples_proposal_ll *= tf2.expand_dims(tf2.cast(query, tf2.float32), 1)
+        proposal_samples *= tf.expand_dims(tf.cast(query, tf.float32), 1)
+        proposal_samples_proposal_ll *= tf.expand_dims(tf.cast(query, tf.float32), 1)
 
-        proposal_mean = proposal_dist.mean() * tf2.cast(query, tf2.float32)
+        proposal_mean = proposal_dist.mean() * tf.cast(query, tf.float32)
 
         x_u_i, u_i, tiled_context = self._get_energy_inputs(
             x_u,
@@ -238,7 +238,7 @@ class ACEModel(tf2.keras.Model):
         )
         negative_energies = self._energy_network([x_u_i, u_i, tiled_context])
 
-        negative_energies = tf2.reshape(
+        negative_energies = tf.reshape(
             negative_energies,
             [
                 -1,
@@ -250,29 +250,29 @@ class ACEModel(tf2.keras.Model):
         )
 
         if selected_features is not None:
-            query = tf2.gather(query, selected_features, batch_dims=1, axis=1)
-            proposal_mean = tf2.gather(
+            query = tf.gather(query, selected_features, batch_dims=1, axis=1)
+            proposal_mean = tf.gather(
                 proposal_mean, selected_features, batch_dims=1, axis=1
             )
-            proposal_ll = tf2.gather(
+            proposal_ll = tf.gather(
                 proposal_ll, selected_features, batch_dims=1, axis=1
             )
-            proposal_samples_proposal_ll = tf2.gather(
+            proposal_samples_proposal_ll = tf.gather(
                 proposal_samples_proposal_ll,
                 selected_features,
                 batch_dims=1,
                 axis=2,
             )
-            proposal_samples = tf2.gather(
+            proposal_samples = tf.gather(
                 proposal_samples,
                 selected_features,
                 batch_dims=1,
                 axis=2,
             )
 
-        negative_energies *= tf2.expand_dims(query, 1)
-        negative_energies = tf2.cast(negative_energies, tf2.float32)
-        query = tf2.cast(query, tf2.float32)
+        negative_energies *= tf.expand_dims(query, 1)
+        negative_energies = tf.cast(negative_energies, tf.float32)
+        query = tf.cast(query, tf.float32)
 
         unnorm_energy_ll = negative_energies[:, 0]
         proposal_samples_unnorm_energy_ll = negative_energies[:, 1:]
@@ -283,17 +283,17 @@ class ACEModel(tf2.keras.Model):
         )
 
         log_normalizers = (
-            tf2.reduce_logsumexp(proposal_samples_log_ratios, axis=1)
-            - tf2.math.log(tf2.cast(num_importance_samples, tf2.float32))
-        ) * tf2.cast(query, tf2.float32)
+            tf.reduce_logsumexp(proposal_samples_log_ratios, axis=1)
+            - tf.math.log(tf.cast(num_importance_samples, tf.float32))
+        ) * tf.cast(query, tf.float32)
 
         energy_ll = unnorm_energy_ll - log_normalizers
 
-        is_weights = tf2.nn.softmax(proposal_samples_log_ratios, axis=1)
-        energy_mean = tf2.reduce_sum(is_weights * proposal_samples, axis=1)
+        is_weights = tf.nn.softmax(proposal_samples_log_ratios, axis=1)
+        energy_mean = tf.reduce_sum(is_weights * proposal_samples, axis=1)
 
-        proposal_samples *= tf2.expand_dims(query, 1)
-        proposal_samples_log_ratios *= tf2.expand_dims(query, 1)
+        proposal_samples *= tf.expand_dims(query, 1)
+        proposal_samples_log_ratios *= tf.expand_dims(query, 1)
         proposal_mean *= query
         energy_mean *= query
 
@@ -311,24 +311,24 @@ class ACEModel(tf2.keras.Model):
 
     def train_step(self, data):
         x, b, *m = data
-        with tf2.GradientTape() as tape:
+        with tf.GradientTape() as tape:
             ace_output = self(
                 [x, b],
                 *m,
                 training=True,
                 num_importance_samples=self._training_importance_samples,
             )
-            energy_ll = tf2.reduce_sum(ace_output.energy_ll, -1)
-            proposal_ll = tf2.reduce_sum(ace_output.proposal_ll, -1)
+            energy_ll = tf.reduce_sum(ace_output.energy_ll, -1)
+            proposal_ll = tf.reduce_sum(ace_output.proposal_ll, -1)
 
-            energy_ll = tf2.nn.compute_average_loss(energy_ll)
-            proposal_ll = tf2.nn.compute_average_loss(proposal_ll)
+            energy_ll = tf.nn.compute_average_loss(energy_ll)
+            proposal_ll = tf.nn.compute_average_loss(proposal_ll)
 
             if self._energy_regularization != 0.0:
-                energy_reg_loss = tf2.nn.compute_average_loss(
-                    tf2.losses.mse(
+                energy_reg_loss = tf.nn.compute_average_loss(
+                    tf.losses.mse(
                         ace_output.energy_ll,
-                        tf2.stop_gradient(ace_output.proposal_ll),
+                        tf.stop_gradient(ace_output.proposal_ll),
                     ),
                 )
             else:
@@ -356,11 +356,11 @@ class ACEModel(tf2.keras.Model):
             num_importance_samples=self._training_importance_samples,
         )
 
-        energy_ll = tf2.reduce_sum(ace_output.energy_ll, -1)
-        proposal_ll = tf2.reduce_sum(ace_output.proposal_ll, -1)
+        energy_ll = tf.reduce_sum(ace_output.energy_ll, -1)
+        proposal_ll = tf.reduce_sum(ace_output.proposal_ll, -1)
 
-        energy_ll = tf2.nn.compute_average_loss(energy_ll)
-        proposal_ll = tf2.nn.compute_average_loss(proposal_ll)
+        energy_ll = tf.nn.compute_average_loss(energy_ll)
+        proposal_ll = tf.nn.compute_average_loss(proposal_ll)
 
         self._metrics[1].update_state(energy_ll)
         self._metrics[2].update_state(proposal_ll)
@@ -387,29 +387,29 @@ class ACEModel(tf2.keras.Model):
         **map_fn_kwargs,
     ):
         if missing_mask is None:
-            missing_mask = tf2.broadcast_to(0.0, tf2.shape(observed_mask))
+            missing_mask = tf.broadcast_to(0.0, tf.shape(observed_mask))
 
         query = (1.0 - observed_mask) * (1.0 - missing_mask)
         observed_mask *= 1.0 - missing_mask
 
-        expanded_x, expanded_observed_mask, selected_features = tf2.map_fn(
+        expanded_x, expanded_observed_mask, selected_features = tf.map_fn(
             _get_autoregressive_ll_batch,
             [x, observed_mask, query],
             fn_output_signature=(
-                tf2.RaggedTensorSpec((None, x.shape[-1]), x.dtype),
-                tf2.RaggedTensorSpec((None, x.shape[-1]), observed_mask.dtype),
-                tf2.RaggedTensorSpec((None, 1), tf2.int64),
+                tf.RaggedTensorSpec((None, x.shape[-1]), x.dtype),
+                tf.RaggedTensorSpec((None, x.shape[-1]), observed_mask.dtype),
+                tf.RaggedTensorSpec((None, 1), tf.int64),
             ),
             **map_fn_kwargs,
         )
 
-        query_total = tf2.math.count_nonzero(query)
+        query_total = tf.math.count_nonzero(query)
         batch_x = expanded_x.merge_dims(0, 1).to_tensor(
             shape=(query_total, self._num_features)
         )
         batch_observed_mask = expanded_observed_mask.merge_dims(0, 1).to_tensor()
-        batch_selected_features = tf2.expand_dims(selected_features.merge_dims(0, 2), 1)
-        batch_selected_features = tf2.cast(batch_selected_features, tf2.int32)
+        batch_selected_features = tf.expand_dims(selected_features.merge_dims(0, 2), 1)
+        batch_selected_features = tf.cast(batch_selected_features, tf.int32)
 
         outputs = self(
             [batch_x, batch_observed_mask],
@@ -417,29 +417,29 @@ class ACEModel(tf2.keras.Model):
             selected_features=batch_selected_features,
         )
 
-        u_count = tf2.math.count_nonzero(query, axis=-1)
+        u_count = tf.math.count_nonzero(query, axis=-1)
 
-        energy_ll = tf2.RaggedTensor.from_row_lengths(
-            tf2.squeeze(outputs.energy_ll, -1), u_count
+        energy_ll = tf.RaggedTensor.from_row_lengths(
+            tf.squeeze(outputs.energy_ll, -1), u_count
         )
-        proposal_ll = tf2.RaggedTensor.from_row_lengths(
-            tf2.squeeze(outputs.proposal_ll, 1), u_count
+        proposal_ll = tf.RaggedTensor.from_row_lengths(
+            tf.squeeze(outputs.proposal_ll, 1), u_count
         )
 
-        energy_ll = tf2.reduce_sum(energy_ll, axis=-1)
-        proposal_ll = tf2.reduce_sum(proposal_ll, axis=-1)
+        energy_ll = tf.reduce_sum(energy_ll, axis=-1)
+        proposal_ll = tf.reduce_sum(proposal_ll, axis=-1)
 
         return energy_ll, proposal_ll
 
     def log_prob(
         self,
-        x: Union[np.ndarray, tf2.Tensor],
-        observed_mask: Union[np.ndarray, tf2.Tensor],
-        missing_mask: Optional[Union[np.ndarray, tf2.Tensor]] = None,
+        x: Union[np.ndarray, tf.Tensor],
+        observed_mask: Union[np.ndarray, tf.Tensor],
+        missing_mask: Optional[Union[np.ndarray, tf.Tensor]] = None,
         num_importance_samples: int = 20,
         num_permutations: Optional[int] = None,
         **map_fn_kwargs,
-    ) -> Tuple[tf2.Tensor, tf2.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Computes conditional log-likelihoods.
 
         This method returns `log p(x_u | x_o)`, where `observed_mask` indicates which
@@ -473,10 +473,10 @@ class ACEModel(tf2.keras.Model):
                 **map_fn_kwargs,
             )
 
-        ell_out = tf2.TensorArray(x.dtype, size=num_permutations)
-        pll_out = tf2.TensorArray(x.dtype, size=num_permutations)
+        ell_out = tf.TensorArray(x.dtype, size=num_permutations)
+        pll_out = tf.TensorArray(x.dtype, size=num_permutations)
 
-        for i in tf2.range(num_permutations):
+        for i in tf.range(num_permutations):
             ell, pll = self._single_permutation_ll(
                 x,
                 observed_mask,
@@ -491,8 +491,8 @@ class ACEModel(tf2.keras.Model):
         ell_out.close()
         pll_out.close()
 
-        energy_out = tf2.transpose(ell_out.stack())
-        proposal_out = tf2.transpose(pll_out.stack())
+        energy_out = tf.transpose(ell_out.stack())
+        proposal_out = tf.transpose(pll_out.stack())
 
         return energy_out, proposal_out
 
@@ -505,24 +505,24 @@ class ACEModel(tf2.keras.Model):
         outputs = self(
             [x_o, observed_mask],
             num_importance_samples=num_resampling_samples,
-            selected_features=tf2.broadcast_to(index, (tf2.shape(x_o)[0], 1)),
+            selected_features=tf.broadcast_to(index, (tf.shape(x_o)[0], 1)),
         )
 
-        resampled_inds = tf2.cast(tf2.random.categorical(outputs.log_ratios, 1), tf2.int32)
-        winners = tf2.gather(
+        resampled_inds = tf.cast(tf.random.categorical(outputs.log_ratios, 1), tf.int32)
+        winners = tf.gather(
             outputs.proposal_samples[..., 0], resampled_inds, batch_dims=1
         )
         return winners[:, 0]
 
     def _instance_autoregressive_sample(self, t):
         x_o, observed_mask, num_samples, num_resampling_samples, use_proposal = t
-        u_inds = tf2.where((1.0 - observed_mask) == 1)[:, 0]
-        u_inds = tf2.random.shuffle(u_inds)
-        u_inds = tf2.cast(u_inds, tf2.int32)
+        u_inds = tf.where((1.0 - observed_mask) == 1)[:, 0]
+        u_inds = tf.random.shuffle(u_inds)
+        u_inds = tf.cast(u_inds, tf.int32)
 
         x_o = x_o * observed_mask
-        curr_x_o = tf2.tile(x_o[tf2.newaxis, ...], [num_samples, 1])
-        curr_observed_mask = tf2.tile(observed_mask[tf2.newaxis, ...], [num_samples, 1])
+        curr_x_o = tf.tile(x_o[tf.newaxis, ...], [num_samples, 1])
+        curr_observed_mask = tf.tile(observed_mask[tf.newaxis, ...], [num_samples, 1])
 
         for j in u_inds:
             if use_proposal:
@@ -532,26 +532,26 @@ class ACEModel(tf2.keras.Model):
                     curr_x_o, curr_observed_mask, j, num_resampling_samples
                 )
 
-            update_inds = tf2.stack(
-                [tf2.range(num_samples), tf2.repeat(j, num_samples)], axis=1
+            update_inds = tf.stack(
+                [tf.range(num_samples), tf.repeat(j, num_samples)], axis=1
             )
 
-            curr_x_o = tf2.tensor_scatter_nd_update(curr_x_o, update_inds, dim_samples)
-            curr_observed_mask = tf2.tensor_scatter_nd_update(
-                curr_observed_mask, update_inds, tf2.ones_like(dim_samples)
+            curr_x_o = tf.tensor_scatter_nd_update(curr_x_o, update_inds, dim_samples)
+            curr_observed_mask = tf.tensor_scatter_nd_update(
+                curr_observed_mask, update_inds, tf.ones_like(dim_samples)
             )
 
         return curr_x_o
 
     def sample(
         self,
-        x_o: Union[np.ndarray, tf2.Tensor],
-        observed_mask: Union[np.ndarray, tf2.Tensor],
+        x_o: Union[np.ndarray, tf.Tensor],
+        observed_mask: Union[np.ndarray, tf.Tensor],
         num_samples: Optional[int] = None,
         num_resampling_samples: int = 20,
         use_proposal: bool = False,
         **map_fn_kwargs,
-    ) -> tf2.Tensor:
+    ) -> tf.Tensor:
         """Samples the given conditional distribution.
 
         Args:
@@ -572,34 +572,33 @@ class ACEModel(tf2.keras.Model):
             `num_samples` is not specified, in which case the array will have size
             `[batch_size, num_features]`.
         """
-        b = tf2.shape(x_o)[0]
+        b = tf.shape(x_o)[0]
         num_samples_ = num_samples or 1
 
-        samples = tf2.map_fn(
+        samples = tf.map_fn(
             self._instance_autoregressive_sample,
             [
                 x_o,
                 observed_mask,
-                tf2.repeat(num_samples_, b),
-                tf2.repeat(num_resampling_samples, b),
-                tf2.repeat(use_proposal, b),
+                tf.repeat(num_samples_, b),
+                tf.repeat(num_resampling_samples, b),
+                tf.repeat(use_proposal, b),
             ],
-            fn_output_signature=tf2.TensorSpec((num_samples_, self._num_features)),
+            fn_output_signature=tf.TensorSpec((num_samples_, self._num_features)),
             **map_fn_kwargs,
         )
 
         if num_samples is None:
-            samples = tf2.squeeze(samples, 1)
+            samples = tf.squeeze(samples, 1)
 
-        import pdb; pdb.set_trace()
         return samples
 
     def impute(
         self,
-        x_o: Union[np.ndarray, tf2.Tensor],
-        observed_mask: Union[np.ndarray, tf2.Tensor],
+        x_o: Union[np.ndarray, tf.Tensor],
+        observed_mask: Union[np.ndarray, tf.Tensor],
         num_importance_samples: int = 20,
-    ) -> Tuple[tf2.Tensor, tf2.Tensor]:
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
         """Imputes unobserved values.
 
         Args:
@@ -614,43 +613,45 @@ class ACEModel(tf2.keras.Model):
             Two arrays of shape `[batch_size, num_features]` that contains the imputed
             versions of `x_o` using the energy and proposal distributions.
         """
-        x_o *= observed_mask
+        # x_o *= observed_mask
+        x_o_m = x_o * observed_mask
         outputs = self(
-            [x_o, observed_mask], num_importance_samples=num_importance_samples
+            [x_o_m, observed_mask], num_importance_samples=num_importance_samples
         )
-        energy_imputations = x_o + outputs.energy_mean
-        proposal_imputations = x_o + outputs.proposal_mean
+        energy_imputations = x_o_m + outputs.energy_mean
+        proposal_imputations = x_o_m + outputs.proposal_mean
         return energy_imputations, proposal_imputations
 
     def bpd(self,
-            x_o: Union[np.ndarray, tf2.Tensor],
-            observed_mask: Union[np.ndarray, tf2.Tensor]):
-        logpo = self.log_prob(x_o, observed_mask)[0]
-        bpd = -logpo / (tf2.reduce_sum(1-observed_mask, axis=1) + 1e-8)
+            x: Union[np.ndarray, tf.Tensor],
+            observed_mask: Union[np.ndarray, tf.Tensor]):
+        logpo = self.log_prob(x, observed_mask)[0]
+        bpd = -logpo / (tf.reduce_sum(1-observed_mask, axis=1) + 1e-8) / np.log(2)
         return bpd
 
     def mse(self,
-            x_o: Union[np.ndarray, tf2.Tensor],
-            observed_mask: Union[np.ndarray, tf2.Tensor]):
-        energy_imputations, proposal_imputations = self.impute(x_o, observed_mask)
-        error = (energy_imputations - x_o) ** 2
-        mse = np.sum(error, axis=-2) / np.count_nonzero(1.0 - observed_mask, axis=-2)
+            x: Union[np.ndarray, tf.Tensor],
+            observed_mask: Union[np.ndarray, tf.Tensor]):
+        x_o = x * observed_mask
+        _, proposal_imputations = self.impute(x_o, observed_mask, num_importance_samples=1)
+        error = (proposal_imputations - x) ** 2
+        mse = tf.math.divide_no_nan(tf.reduce_sum(error, axis=-1), tf.math.count_nonzero(1.0 - observed_mask, axis=-1, dtype=tf.float32))
         return mse
 
 def _get_autoregressive_ll_batch(t):
     x, observed_mask, query = t
-    u_inds = tf2.squeeze(tf2.where(query), 1)
-    u_inds = tf2.random.shuffle(u_inds)
-    mask = tf2.math.cumsum(
-        tf2.one_hot(u_inds, x.shape[-1], dtype=observed_mask.dtype),
+    u_inds = tf.squeeze(tf.where(query), 1)
+    u_inds = tf.random.shuffle(u_inds)
+    mask = tf.math.cumsum(
+        tf.one_hot(u_inds, x.shape[-1], dtype=observed_mask.dtype),
         axis=0,
         exclusive=True,
     )
-    mask += tf2.expand_dims(observed_mask, 0)
-    x = tf2.tile(x[tf2.newaxis, :], [tf2.shape(u_inds)[0], 1])
+    mask += tf.expand_dims(observed_mask, 0)
+    x = tf.tile(x[tf.newaxis, :], [tf.shape(u_inds)[0], 1])
 
     return (
-        tf2.RaggedTensor.from_tensor(x),
-        tf2.RaggedTensor.from_tensor(mask),
-        tf2.RaggedTensor.from_tensor(tf2.expand_dims(u_inds, 1)),
+        tf.RaggedTensor.from_tensor(x),
+        tf.RaggedTensor.from_tensor(mask),
+        tf.RaggedTensor.from_tensor(tf.expand_dims(u_inds, 1)),
     )

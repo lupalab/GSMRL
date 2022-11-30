@@ -13,7 +13,7 @@ def get_model(sess, hps):
         from .ace import Model
         # model = Model(sess, hps)
         model = Model(hps.dimension)
-        model.load_weights("./exp/gas/weights.h5")
+        model.load_weights(hps.model_dir)
     elif hps.model == 'acnp_classifier':
         from .acnp_classifier import Model
         model = Model(sess, hps)

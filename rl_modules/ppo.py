@@ -11,7 +11,7 @@ from utils.memory import ReplayMemory
 from utils.visualize import plot_dict
 
 logger = logging.getLogger(__name__)
-# tf.disable_v2_behavior()
+tf.disable_v2_behavior()
 
 class PPOPolicy(object):
     def __init__(self, hps, env):
@@ -65,8 +65,7 @@ class PPOPolicy(object):
         future: [B,d]
         action: [B] sample an action to take
         '''
-        # import pdb; pdb.set_trace()
-        probas = self.sess.run(self.actor_proba, 
+        probas = self.sess.run(self.actor_proba,
                               {self.state: state,
                                self.mask: mask,
                                self.future: future})

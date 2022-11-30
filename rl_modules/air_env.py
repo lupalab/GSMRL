@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import tensorflow.compat.v1 as tf
+import os
 from scipy.stats import entropy
 from scipy.special import softmax
 
@@ -18,15 +19,13 @@ class Env(object):
         self.act_size = self.hps.act_size
         self.terminal_act = self.hps.act_size - 1
         self.n_future = 2
-
         # build ACE model
         model_hps = HParams(f'{hps.model_dir}/params.json')
-        ray.init()
-        self.model = RayACEModel.remote(model_hps)
+        self.model = RayACEModel.options(name="ACEModel").remote(model_hps)
+        ray.get(self.model.load_weights.remote(f'{hps.model_dir}/weights.h5'))
         # build dataset
-        self.dataset = Dataset(hps.dfile, split, hps.episode_workers, 'remaining', True)
+        self.dataset = Dataset(hps.dfile, split, hps.batch_size, 'remaining', True)
         self.dataset.initialize()
-        # import pdb; pdb.set_trace()
         if hasattr(self.dataset, 'cost'):
             self.cost = self.dataset.cost
         else:
@@ -52,10 +51,6 @@ class Env(object):
                 return None, None
 
     def _rec_reward(self, x, m):
-        # mse = self.model.run(self.model.mse,
-        #             feed_dict={self.model.x: x,
-        #                        self.model.b: m,
-        #                        self.model.m: m})
         mse = ray.get(self.model.mse.remote(x, m))
 
         return -mse
@@ -66,10 +61,6 @@ class Env(object):
         '''
         xx = np.concatenate([x, x], axis=0)
         bb = np.concatenate([m, old_m], axis=0)
-        # bpd = self.model.run(self.model.bpd,
-        #         feed_dict={self.model.x: xx,
-        #                    self.model.b: bb,
-        #                    self.model.m: bb})
         bpd = ray.get(self.model.bpd.remote(xx, bb))
         post_bpd, pre_bpd = np.split(bpd, 2, axis=0)
 
@@ -106,10 +97,6 @@ class Env(object):
         return self.x * self.m, self.m.copy(), reward, done
 
     def peek(self, state, mask):
-        # sam = self.model.run(self.model.sam,
-        #         feed_dict={self.model.x: state,
-        #                    self.model.b: mask,
-        #                    self.model.m: np.ones_like(mask)})
         sam = ray.get(self.model.sample.remote(state, mask))
         sam_mean = np.mean(sam, axis=1)
         sam_std = np.std(sam, axis=1)
@@ -119,10 +106,6 @@ class Env(object):
         return future
 
     def evaluate(self, state, mask):
-        # mse = self.model.run(self.model.mse,
-        #             feed_dict={self.model.x: self.x,
-        #                        self.model.b: mask,
-        #                        self.model.m: mask})
         mse = ray.get(self.model.mse.remote(self.x, mask))
 
         return {'mse': mse}

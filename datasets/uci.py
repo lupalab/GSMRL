@@ -31,10 +31,9 @@ class Dataset(object):
         g = tf.Graph()
         with g.as_default():
             # open a session
-            config = tf.ConfigProto()
-            config.log_device_placement = True
-            config.allow_soft_placement = True
-            config.gpu_options.allow_growth = True
+            config = tf.ConfigProto(
+                device_count = {'GPU': 0}
+            )
             self.sess = tf.Session(config=config, graph=g)
             # build dataset
             with open(dfile, 'rb') as f:
@@ -42,6 +41,7 @@ class Dataset(object):
             data, label = data_dict[split]
             self.size = data.shape[0]
             self.dimension = data.shape[1]
+            self.label_dim = label.shape[1]
             self.num_batches = self.size // batch_size
             dst = tf.data.Dataset.from_tensor_slices((data, label))
             if split == 'train':
@@ -52,7 +52,7 @@ class Dataset(object):
             dst_it = dst.make_initializable_iterator()
             x, y = dst_it.get_next()
             self.x = tf.reshape(x, [batch_size, self.dimension])
-            self.y = tf.reshape(y, [batch_size])
+            self.y = tf.reshape(y, [batch_size, self.label_dim])
             self.initializer = dst_it.initializer
             self.mask_type = mask_type
             self.augment = augment

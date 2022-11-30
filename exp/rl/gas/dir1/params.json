@@ -26,7 +26,7 @@
     "decay_steps": 10000,
     "decay_rate": 0.5,
     "clip_gradient": 1,
-    "exp_dir": "./exp/gas/dir1",
+    "exp_dir": "./exp/gas/ace",
     "summ_freq": 100,
     "num_samples": 50
 }

@@ -3,8 +3,8 @@
     "dimension": 10,
     "act_size": 11,
     "episode_workers": 2000,
-    "acquisition_cost": 0.001,
-    "model_dir": "./exp/gas",
+    "acquisition_cost": 0.15,
+    "model_dir": "./exp/gas/ace",
     "num_heads": 4,
     "num_induced_points": -1,
     "embed_type": "set",
@@ -15,7 +15,7 @@
     "lam": 0.95,
     "ratio_clip_range": 0.2,
     "ratio_clip_decay": 0,
-    "train_iters": 500,
+    "train_iters": 50,
     "batch_size": 1000,
     "epochs": 5,
     "finetune_env": 0,
@@ -28,5 +28,5 @@
     "log_freq": 1,
     "eval_freq": 100,
     "save_freq": 1,
-    "exp_dir": "./exp/gas"
+    "exp_dir": "./exp/gas/agent_15"
 }

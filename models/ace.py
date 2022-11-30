@@ -572,6 +572,7 @@ class ACEModel(tf.keras.Model):
             `num_samples` is not specified, in which case the array will have size
             `[batch_size, num_features]`.
         """
+        print("Calling sample()")
         b = tf.shape(x_o)[0]
         num_samples_ = num_samples or 1
 
@@ -613,7 +614,6 @@ class ACEModel(tf.keras.Model):
             Two arrays of shape `[batch_size, num_features]` that contains the imputed
             versions of `x_o` using the energy and proposal distributions.
         """
-        # x_o *= observed_mask
         x_o_m = x_o * observed_mask
         outputs = self(
             [x_o_m, observed_mask], num_importance_samples=num_importance_samples
@@ -625,17 +625,18 @@ class ACEModel(tf.keras.Model):
     def bpd(self,
             x: Union[np.ndarray, tf.Tensor],
             observed_mask: Union[np.ndarray, tf.Tensor]):
-        logpo = self.log_prob(x, observed_mask)[0]
-        bpd = -logpo / (tf.reduce_sum(1-observed_mask, axis=1) + 1e-8) / np.log(2)
+        print("Calling bpd()")
+        logpo = self.log_prob(x, observed_mask, num_importance_samples=1)[1]
+        bpd = -logpo / (tf.reduce_sum(1-observed_mask, axis=1) + 1e-8) / tf.math.log(2.0)
         return bpd
 
     def mse(self,
             x: Union[np.ndarray, tf.Tensor],
             observed_mask: Union[np.ndarray, tf.Tensor]):
+        print("Calling mse()")
         x_o = x * observed_mask
         _, proposal_imputations = self.impute(x_o, observed_mask, num_importance_samples=1)
-        error = (proposal_imputations - x) ** 2
-        mse = tf.math.divide_no_nan(tf.reduce_sum(error, axis=-1), tf.math.count_nonzero(1.0 - observed_mask, axis=-1, dtype=tf.float32))
+        mse = tf.reduce_sum(tf.square(proposal_imputations - x), axis=1)
         return mse
 
 def _get_autoregressive_ll_batch(t):

@@ -5,8 +5,7 @@ sys.path.append(p)
 import argparse
 import logging
 import tensorflow.compat.v1 as tf
-# tf.disable_v2_behavior()
-# tf.disable_eager_execution()
+import ray
 import numpy as np
 import pickle
 from pprint import pformat, pprint
@@ -18,6 +17,11 @@ from rl_modules.ts_env import Env as TSEnv
 from rl_modules.air_env import Env as AirEnv
 # from rl_modules.img_air_env import Env as ImgAirEnv
 from utils.hparams import HParams
+
+# physical_devices = tf.config.experimental.list_physical_devices('GPU')
+# tf.config.experimental.set_visible_devices(physical_devices[1:], 'GPU')
+# logical_devices = tf.config.experimental.list_logical_devices('GPU')
+# print(logical_devices)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--cfg_file', type=str)
@@ -40,6 +44,9 @@ logging.info(pformat(params.dict))
 
 np.random.seed(args.seed)
 tf.set_random_seed(args.seed)
+
+os.environ["CUDA_VISIBLE_DEVICES"] = f"{args.agent_device}"
+ray.init()
 
 # Env class
 env_dict = {
@@ -64,6 +71,8 @@ if args.mode == 'resume':
 if args.mode == 'train':
     agent.train()
 train_dict = agent.evaluate(hard=args.hard)
+model = ray.get_actor("ACEModel")
+ray.kill(model)
 
 # test
 with tf.device(f"/gpu:{args.env_device}"):
@@ -73,6 +82,8 @@ with tf.device(f"/gpu:{args.agent_device}"):
     agent = PPOPolicy(params, env)
 
 test_dict = agent.evaluate(hard=args.hard)
+model = ray.get_actor("ACEModel")
+ray.kill(model)
 
 # save
 os.makedirs(f'{params.exp_dir}/evaluate', exist_ok=True)

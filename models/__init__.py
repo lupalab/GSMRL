@@ -11,7 +11,6 @@ def get_model(sess, hps):
         model = Model(sess, hps)
     elif hps.model == 'ace':
         from .ace import Model
-        # model = Model(sess, hps)
         model = Model(hps.dimension)
         model.load_weights(hps.model_dir)
     elif hps.model == 'acnp_classifier':
